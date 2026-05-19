@@ -49,5 +49,6 @@ def chart(
     )
 
 
-# Static files must be mounted AFTER API routes
-app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="static")
+# Static files must be mounted AFTER API routes (local dev only; Vercel serves from outputDirectory)
+if FRONTEND_DIR.exists():
+    app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="static")

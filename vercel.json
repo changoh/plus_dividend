@@ -1,9 +1,9 @@
 {
   "outputDirectory": "frontend",
+  "functions": {
+    "api/index.py": { "runtime": "python3.11" }
+  },
   "rewrites": [
-    {
-      "source": "/api/(.*)",
-      "destination": "https://RENDER_URL_HERE.onrender.com/api/$1"
-    }
+    { "source": "/api/(.*)", "destination": "/api/index" }
   ]
 }
