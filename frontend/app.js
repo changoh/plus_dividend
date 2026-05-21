@@ -66,13 +66,22 @@ function initChart() {
     rightPriceScale: { borderColor: '#2a2e39' },
     timeScale: {
       borderColor: '#2a2e39',
-      timeVisible: true,
+      timeVisible: false,
       fixLeftEdge: true,
       fixRightEdge: true,
     },
     crosshair: {
       vertLine: { color: '#4a4f5e', labelBackgroundColor: '#1c2230' },
       horzLine: { color: '#4a4f5e', labelBackgroundColor: '#1c2230' },
+    },
+    localization: {
+      timeFormatter: (time) => {
+        if (typeof time === 'object' && time.year) {
+          return `${time.year}/${String(time.month).padStart(2,'0')}/${String(time.day).padStart(2,'0')}`;
+        }
+        const d = new Date(time * 1000);
+        return `${d.getUTCFullYear()}/${String(d.getUTCMonth()+1).padStart(2,'0')}/${String(d.getUTCDate()).padStart(2,'0')}`;
+      },
     },
     handleScroll: true,
     handleScale: true,
@@ -135,7 +144,7 @@ function drawAnnualOverlay() {
   const endYear   = new Date(toStr).getFullYear();
   const chartWidth = el('chart').clientWidth;
 
-  // 연말 세로 구분선 (startYear~endYear-1 사이)
+  // 연말 세로 구분선 (더 밝게)
   for (let year = startYear; year < endYear; year++) {
     const x = chart.timeScale().timeToCoordinate(`${year}-12-31`);
     if (x === null || x < 0 || x > chartWidth) continue;
@@ -145,7 +154,7 @@ function drawAnnualOverlay() {
     overlay.appendChild(line);
   }
 
-  // 연간 합산 텍스트 — 해당 연도 중간(7월 1일)에 상단 고정
+  // 연간 합산 텍스트 — 연도 + 금액 두 줄, 상단 고정
   const annual = aggregateAnnually(currentDividends);
   let colorIdx = 0;
   let prevAmt = null;
@@ -158,9 +167,10 @@ function drawAnnualOverlay() {
 
     const label = document.createElement('div');
     label.className = 'year-label';
-    label.style.left  = `${Math.round(x)}px`;
-    label.style.color = MARKER_COLORS[colorIdx];
-    label.textContent = `${amount.toLocaleString()}원`;
+    label.style.left = `${Math.round(x)}px`;
+    label.innerHTML =
+      `<div class="year-label-yr">${year}</div>` +
+      `<div style="color:${MARKER_COLORS[colorIdx]}">${amount.toLocaleString()}원</div>`;
     overlay.appendChild(label);
   });
 }
@@ -256,6 +266,7 @@ function renderMarkers(dividends) {
         position: 'belowBar',
         color: MARKER_COLORS[colorIdx],
         shape: 'circle',
+        size: 0.5,
       };
     }
   });
