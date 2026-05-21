@@ -7,12 +7,11 @@ let currentDividends = [];
 let currentLastClose = 0;
 let isLoading = false;
 let tableShownCount = 5;
-
-// 마커 표시 모드: 'monthly' = 개별 점, 'annual' = 연간 합산
-let markerMode = 'monthly';
+let markerMode = 'monthly'; // 'monthly' | 'annual'
 let markerDebounceTimer = null;
 
 const MIN_DATE = '2013-01-01';
+const MARKER_COLORS = ['#22c55e', '#f59e0b'];
 
 function monthsAgo(n) {
   const d = new Date();
@@ -22,6 +21,34 @@ function monthsAgo(n) {
 
 function today() {
   return new Date().toISOString().slice(0, 10);
+}
+
+// Lightweight Charts가 반환하는 time 값을 YYYY-MM-DD 문자열로 변환
+function toDateStr(time) {
+  if (typeof time === 'string') return time;
+  if (time && typeof time === 'object' && time.year) {
+    return `${time.year}-${String(time.month).padStart(2, '0')}-${String(time.day).padStart(2, '0')}`;
+  }
+  return new Date(time * 1000).toISOString().slice(0, 10);
+}
+
+function monthsBetween(from, to) {
+  const f = new Date(toDateStr(from));
+  const t = new Date(toDateStr(to));
+  return (t.getFullYear() - f.getFullYear()) * 12 + (t.getMonth() - f.getMonth());
+}
+
+// 연도별 분배금 합산. year 필드 포함해서 반환
+function aggregateAnnually(dividends) {
+  const byYear = {};
+  dividends.forEach(d => {
+    const year = d.date.slice(0, 4);
+    if (!byYear[year]) byYear[year] = { total: 0 };
+    byYear[year].total += d.amount;
+  });
+  return Object.entries(byYear)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([year, { total }]) => ({ year, amount: total }));
 }
 
 // ── Init chart ──────────────────────────────────────────────────────────────
@@ -70,7 +97,7 @@ function initChart() {
 
   chart.subscribeCrosshairMove(handleCrosshair);
 
-  // 표시 범위가 바뀔 때마다 마커 모드 자동 전환
+  // 표시 범위 변경 시: 모드 전환 또는 오버레이 갱신
   chart.timeScale().subscribeVisibleTimeRangeChange(range => {
     if (!range || !currentDividends.length) return;
     clearTimeout(markerDebounceTimer);
@@ -80,19 +107,62 @@ function initChart() {
       if (newMode !== markerMode) {
         markerMode = newMode;
         renderMarkers(currentDividends);
+      } else if (markerMode === 'annual') {
+        // 모드 변화 없어도 범위가 바뀌면 오버레이 위치 재계산
+        drawAnnualOverlay();
       }
     }, 120);
   });
 
   new ResizeObserver(() => {
     chart.applyOptions({ width: el('chart').clientWidth });
+    drawAnnualOverlay();
   }).observe(el('chart'));
 }
 
-function monthsBetween(from, to) {
-  const f = new Date(typeof from === 'string' ? from : from * 1000);
-  const t = new Date(typeof to   === 'string' ? to   : to   * 1000);
-  return (t.getFullYear() - f.getFullYear()) * 12 + (t.getMonth() - f.getMonth());
+// ── 연간 오버레이: 연말 세로선 + 상단 고정 연간 합산 텍스트 ───────────────
+function drawAnnualOverlay() {
+  const overlay = el('chart-overlay');
+  overlay.innerHTML = '';
+  if (markerMode !== 'annual' || !currentDividends.length) return;
+
+  const visibleRange = chart.timeScale().getVisibleRange();
+  if (!visibleRange) return;
+
+  const fromStr = toDateStr(visibleRange.from);
+  const toStr   = toDateStr(visibleRange.to);
+  const startYear = new Date(fromStr).getFullYear();
+  const endYear   = new Date(toStr).getFullYear();
+  const chartWidth = el('chart').clientWidth;
+
+  // 연말 세로 구분선 (startYear~endYear-1 사이)
+  for (let year = startYear; year < endYear; year++) {
+    const x = chart.timeScale().timeToCoordinate(`${year}-12-31`);
+    if (x === null || x < 0 || x > chartWidth) continue;
+    const line = document.createElement('div');
+    line.className = 'year-line';
+    line.style.left = `${Math.round(x)}px`;
+    overlay.appendChild(line);
+  }
+
+  // 연간 합산 텍스트 — 해당 연도 중간(7월 1일)에 상단 고정
+  const annual = aggregateAnnually(currentDividends);
+  let colorIdx = 0;
+  let prevAmt = null;
+  annual.forEach(({ year, amount }) => {
+    if (prevAmt !== null && amount !== prevAmt) colorIdx = 1 - colorIdx;
+    prevAmt = amount;
+
+    const x = chart.timeScale().timeToCoordinate(`${year}-07-01`);
+    if (x === null || x < 0 || x > chartWidth) return;
+
+    const label = document.createElement('div');
+    label.className = 'year-label';
+    label.style.left  = `${Math.round(x)}px`;
+    label.style.color = MARKER_COLORS[colorIdx];
+    label.textContent = `${amount.toLocaleString()}원`;
+    overlay.appendChild(label);
+  });
 }
 
 // ── 기간 버튼 ─────────────────────────────────────────────────────────────
@@ -138,7 +208,6 @@ async function loadChart() {
     renderMarkers(data.dividends);
     renderTable();
 
-    // 초기 표시: 최근 6개월
     chart.timeScale().setVisibleRange({ from: monthsAgo(6), to: today() });
   } catch (err) {
     showToast('데이터를 불러올 수 없습니다: ' + err.message);
@@ -163,43 +232,36 @@ function renderVolume(candles) {
   })));
 }
 
-const MARKER_COLORS = ['#22c55e', '#f59e0b'];
-
-// 연간 합산: 연도별로 분배금 합산 후 마지막 지급일에 배치
-function aggregateAnnually(dividends) {
-  const byYear = {};
-  dividends.forEach(d => {
-    const year = d.date.slice(0, 4);
-    if (!byYear[year]) byYear[year] = { total: 0, lastDate: d.date };
-    byYear[year].total += d.amount;
-    if (d.date > byYear[year].lastDate) byYear[year].lastDate = d.date;
-  });
-  return Object.entries(byYear)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([, { total, lastDate }]) => ({ date: lastDate, amount: total }));
-}
-
 function renderMarkers(dividends) {
-  const data = markerMode === 'annual' ? aggregateAnnually(dividends) : dividends;
-
   let colorIdx = 0;
   let prevAmount = null;
-  const markers = data.map(d => {
+
+  const markers = dividends.map(d => {
     if (prevAmount !== null && d.amount !== prevAmount) colorIdx = 1 - colorIdx;
     prevAmount = d.amount;
-    const marker = {
-      time: d.date,
-      position: 'belowBar',
-      color: MARKER_COLORS[colorIdx],
-      shape: 'circle',
-    };
-    // 연간 모드일 때만 금액 텍스트 표시
-    if (markerMode === 'annual') {
-      marker.text = `${d.amount.toLocaleString()}원`;
+
+    if (markerMode === 'monthly') {
+      // 14개월 이하: arrowUp + 금액 텍스트
+      return {
+        time: d.date,
+        position: 'belowBar',
+        color: MARKER_COLORS[colorIdx],
+        shape: 'arrowUp',
+        text: `${d.amount.toLocaleString()}원`,
+      };
+    } else {
+      // 14개월 초과: 개별 점 마커 (텍스트 없음, 연간 합산은 오버레이로)
+      return {
+        time: d.date,
+        position: 'belowBar',
+        color: MARKER_COLORS[colorIdx],
+        shape: 'circle',
+      };
     }
-    return marker;
   });
+
   candleSeries.setMarkers(markers);
+  drawAnnualOverlay();
 }
 
 function renderHeader(data) {
@@ -237,8 +299,6 @@ function renderTable() {
   }).join('');
 
   const remaining = reversed.length - tableShownCount;
-
-  // 더 보기: 아직 숨겨진 항목이 있을 때
   const expandBtn = el('expand-btn');
   if (remaining > 0) {
     expandBtn.classList.remove('hidden');
@@ -247,13 +307,7 @@ function renderTable() {
     expandBtn.classList.add('hidden');
   }
 
-  // 접기: 5개보다 많이 펼쳐져 있을 때
-  const collapseBtn = el('collapse-btn');
-  if (tableShownCount > 5) {
-    collapseBtn.classList.remove('hidden');
-  } else {
-    collapseBtn.classList.add('hidden');
-  }
+  el('collapse-btn').classList.toggle('hidden', tableShownCount <= 5);
 }
 
 // ── Crosshair tooltip ─────────────────────────────────────────────────────────
