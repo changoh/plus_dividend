@@ -59,7 +59,7 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .legend-item.div { color: var(--green); }
 
 /* Table expand button */
-.expand-wrap { text-align: center; margin-top: 16px; }
+.expand-wrap { display: flex; gap: 8px; justify-content: center; margin-top: 16px; }
 .expand-btn { background: var(--bg3); border: 1px solid var(--border); color: var(--text-muted); padding: 8px 28px; border-radius: 6px; cursor: pointer; font-size: 13px; font-family: inherit; transition: all 0.15s; }
 .expand-btn:hover { border-color: #4a4f5e; color: var(--text); }
 .expand-btn.hidden { display: none; }

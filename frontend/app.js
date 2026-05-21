@@ -8,6 +8,10 @@ let currentLastClose = 0;
 let isLoading = false;
 let tableShownCount = 5;
 
+// 마커 표시 모드: 'monthly' = 개별 점, 'annual' = 연간 합산
+let markerMode = 'monthly';
+let markerDebounceTimer = null;
+
 const MIN_DATE = '2013-01-01';
 
 function monthsAgo(n) {
@@ -66,9 +70,29 @@ function initChart() {
 
   chart.subscribeCrosshairMove(handleCrosshair);
 
+  // 표시 범위가 바뀔 때마다 마커 모드 자동 전환
+  chart.timeScale().subscribeVisibleTimeRangeChange(range => {
+    if (!range || !currentDividends.length) return;
+    clearTimeout(markerDebounceTimer);
+    markerDebounceTimer = setTimeout(() => {
+      const months = monthsBetween(range.from, range.to);
+      const newMode = months > 14 ? 'annual' : 'monthly';
+      if (newMode !== markerMode) {
+        markerMode = newMode;
+        renderMarkers(currentDividends);
+      }
+    }, 120);
+  });
+
   new ResizeObserver(() => {
     chart.applyOptions({ width: el('chart').clientWidth });
   }).observe(el('chart'));
+}
+
+function monthsBetween(from, to) {
+  const f = new Date(typeof from === 'string' ? from : from * 1000);
+  const t = new Date(typeof to   === 'string' ? to   : to   * 1000);
+  return (t.getFullYear() - f.getFullYear()) * 12 + (t.getMonth() - f.getMonth());
 }
 
 // ── 기간 버튼 ─────────────────────────────────────────────────────────────
@@ -106,12 +130,12 @@ async function loadChart() {
 
     renderCandles(data.candles);
     renderVolume(data.candles);
-    renderMarkers(data.dividends);
     renderHeader(data);
 
     currentDividends = data.dividends;
     currentLastClose = data.last_close;
     buildDivMap(data.dividends);
+    renderMarkers(data.dividends);
     renderTable();
 
     // 초기 표시: 최근 6개월
@@ -141,19 +165,39 @@ function renderVolume(candles) {
 
 const MARKER_COLORS = ['#22c55e', '#f59e0b'];
 
+// 연간 합산: 연도별로 분배금 합산 후 마지막 지급일에 배치
+function aggregateAnnually(dividends) {
+  const byYear = {};
+  dividends.forEach(d => {
+    const year = d.date.slice(0, 4);
+    if (!byYear[year]) byYear[year] = { total: 0, lastDate: d.date };
+    byYear[year].total += d.amount;
+    if (d.date > byYear[year].lastDate) byYear[year].lastDate = d.date;
+  });
+  return Object.entries(byYear)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([, { total, lastDate }]) => ({ date: lastDate, amount: total }));
+}
+
 function renderMarkers(dividends) {
+  const data = markerMode === 'annual' ? aggregateAnnually(dividends) : dividends;
+
   let colorIdx = 0;
   let prevAmount = null;
-  const markers = dividends.map(d => {
+  const markers = data.map(d => {
     if (prevAmount !== null && d.amount !== prevAmount) colorIdx = 1 - colorIdx;
     prevAmount = d.amount;
-    return {
+    const marker = {
       time: d.date,
       position: 'belowBar',
       color: MARKER_COLORS[colorIdx],
-      shape: 'arrowUp',
-      text: `${d.amount.toLocaleString()}원`,
+      shape: 'circle',
     };
+    // 연간 모드일 때만 금액 텍스트 표시
+    if (markerMode === 'annual') {
+      marker.text = `${d.amount.toLocaleString()}원`;
+    }
+    return marker;
   });
   candleSeries.setMarkers(markers);
 }
@@ -169,7 +213,7 @@ function renderHeader(data) {
     : '—';
 }
 
-// ── 분배금 테이블 (5개 기본, 20개씩 펼침) ──────────────────────────────────
+// ── 분배금 테이블 (5개 기본, 20개씩 펼침 / 접기) ─────────────────────────
 function renderTable() {
   const tbody = el('div-tbody');
   const reversed = [...currentDividends].reverse();
@@ -177,6 +221,7 @@ function renderTable() {
   if (!reversed.length) {
     tbody.innerHTML = '<tr><td colspan="3" class="empty">분배금 데이터 없음</td></tr>';
     el('expand-btn').classList.add('hidden');
+    el('collapse-btn').classList.add('hidden');
     return;
   }
 
@@ -192,12 +237,22 @@ function renderTable() {
   }).join('');
 
   const remaining = reversed.length - tableShownCount;
+
+  // 더 보기: 아직 숨겨진 항목이 있을 때
   const expandBtn = el('expand-btn');
-  if (remaining <= 0) {
-    expandBtn.classList.add('hidden');
-  } else {
+  if (remaining > 0) {
     expandBtn.classList.remove('hidden');
     expandBtn.textContent = `▼ 더 보기 (${Math.min(20, remaining)}개)`;
+  } else {
+    expandBtn.classList.add('hidden');
+  }
+
+  // 접기: 5개보다 많이 펼쳐져 있을 때
+  const collapseBtn = el('collapse-btn');
+  if (tableShownCount > 5) {
+    collapseBtn.classList.remove('hidden');
+  } else {
+    collapseBtn.classList.add('hidden');
   }
 }
 
@@ -271,6 +326,11 @@ initPeriodButtons();
 
 el('expand-btn').addEventListener('click', () => {
   tableShownCount += 20;
+  renderTable();
+});
+
+el('collapse-btn').addEventListener('click', () => {
+  tableShownCount = 5;
   renderTable();
 });
 
