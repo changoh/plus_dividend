@@ -9,6 +9,7 @@ let isLoading = false;
 let tableShownCount = 5;
 let markerMode = 'monthly'; // 'monthly' | 'annual'
 let markerDebounceTimer = null;
+let tradingDates = []; // 실거래일 목록 — timeToCoordinate에 항상 유효한 날짜 전달용
 
 const MIN_DATE = '2013-01-01';
 const MARKER_COLORS = ['#22c55e', '#f59e0b'];
@@ -23,13 +24,13 @@ function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
-// Lightweight Charts가 반환하는 time 값을 YYYY-MM-DD 문자열로 변환
+// Lightweight Charts가 반환하는 time 값(object | string | number)을 YYYY-MM-DD로 변환
 function toDateStr(time) {
-  if (typeof time === 'string') return time;
-  if (time && typeof time === 'object' && time.year) {
-    return `${time.year}-${String(time.month).padStart(2, '0')}-${String(time.day).padStart(2, '0')}`;
+  if (typeof time === 'object' && time !== null && 'year' in time) {
+    return `${time.year}-${String(time.month).padStart(2,'0')}-${String(time.day).padStart(2,'0')}`;
   }
-  return new Date(time * 1000).toISOString().slice(0, 10);
+  if (typeof time === 'string') return time;
+  return new Date(Number(time) * 1000).toISOString().slice(0, 10);
 }
 
 function monthsBetween(from, to) {
@@ -38,7 +39,18 @@ function monthsBetween(from, to) {
   return (t.getFullYear() - f.getFullYear()) * 12 + (t.getMonth() - f.getMonth());
 }
 
-// 연도별 분배금 합산. year 필드 포함해서 반환
+// targetDate 이후 첫 번째 실거래일 반환 (비거래일에 timeToCoordinate가 null 반환하는 문제 방지)
+function nearestTradingDay(targetDate) {
+  let lo = 0, hi = tradingDates.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (tradingDates[mid] < targetDate) lo = mid + 1;
+    else hi = mid;
+  }
+  return tradingDates[lo] || null;
+}
+
+// 연도별 분배금 합산
 function aggregateAnnually(dividends) {
   const byYear = {};
   dividends.forEach(d => {
@@ -75,12 +87,18 @@ function initChart() {
       horzLine: { color: '#4a4f5e', labelBackgroundColor: '#1c2230' },
     },
     localization: {
+      // time은 object({year,month,day}) | string('YYYY-MM-DD') | number(Unix) 중 하나
       timeFormatter: (time) => {
-        if (typeof time === 'object' && time.year) {
-          return `${time.year}/${String(time.month).padStart(2,'0')}/${String(time.day).padStart(2,'0')}`;
+        let y, m, d;
+        if (typeof time === 'object' && time !== null && 'year' in time) {
+          y = time.year; m = time.month; d = time.day;
+        } else if (typeof time === 'string') {
+          [y, m, d] = time.split('-');
+        } else {
+          const dt = new Date(Number(time) * 1000);
+          y = dt.getUTCFullYear(); m = dt.getUTCMonth() + 1; d = dt.getUTCDate();
         }
-        const d = new Date(time * 1000);
-        return `${d.getUTCFullYear()}/${String(d.getUTCMonth()+1).padStart(2,'0')}/${String(d.getUTCDate()).padStart(2,'0')}`;
+        return `${y}/${String(m).padStart(2,'0')}/${String(d).padStart(2,'0')}`;
       },
     },
     handleScroll: true,
@@ -106,7 +124,6 @@ function initChart() {
 
   chart.subscribeCrosshairMove(handleCrosshair);
 
-  // 표시 범위 변경 시: 모드 전환 또는 오버레이 갱신
   chart.timeScale().subscribeVisibleTimeRangeChange(range => {
     if (!range || !currentDividends.length) return;
     clearTimeout(markerDebounceTimer);
@@ -117,7 +134,6 @@ function initChart() {
         markerMode = newMode;
         renderMarkers(currentDividends);
       } else if (markerMode === 'annual') {
-        // 모드 변화 없어도 범위가 바뀌면 오버레이 위치 재계산
         drawAnnualOverlay();
       }
     }, 120);
@@ -129,7 +145,7 @@ function initChart() {
   }).observe(el('chart'));
 }
 
-// ── 연간 오버레이: 연말 세로선 + 상단 고정 연간 합산 텍스트 ───────────────
+// ── 연간 오버레이: 연말 빨간 세로선 + 상단 고정 연간 합산 텍스트 ────────────
 function drawAnnualOverlay() {
   const overlay = el('chart-overlay');
   overlay.innerHTML = '';
@@ -144,9 +160,11 @@ function drawAnnualOverlay() {
   const endYear   = new Date(toStr).getFullYear();
   const chartWidth = el('chart').clientWidth;
 
-  // 연말 세로 구분선 (더 밝게)
+  // 연말 빨간 세로 구분선
   for (let year = startYear; year < endYear; year++) {
-    const x = chart.timeScale().timeToCoordinate(`${year}-12-31`);
+    // 12-31이 비거래일일 수 있으므로 해당 연도 마지막 거래일 사용
+    const yearEndDate = nearestTradingDay(`${year}-12-28`) || `${year}-12-31`;
+    const x = chart.timeScale().timeToCoordinate(yearEndDate);
     if (x === null || x < 0 || x > chartWidth) continue;
     const line = document.createElement('div');
     line.className = 'year-line';
@@ -154,7 +172,7 @@ function drawAnnualOverlay() {
     overlay.appendChild(line);
   }
 
-  // 연간 합산 텍스트 — 연도 + 금액 두 줄, 상단 고정
+  // 연간 합산 텍스트 — 7월 1일 이후 첫 거래일 기준으로 상단 고정
   const annual = aggregateAnnually(currentDividends);
   let colorIdx = 0;
   let prevAmt = null;
@@ -162,7 +180,11 @@ function drawAnnualOverlay() {
     if (prevAmt !== null && amount !== prevAmt) colorIdx = 1 - colorIdx;
     prevAmt = amount;
 
-    const x = chart.timeScale().timeToCoordinate(`${year}-07-01`);
+    // 비거래일 문제 방지: 7월 1일 이후 첫 실거래일 사용
+    const labelDate = nearestTradingDay(`${year}-07-01`);
+    if (!labelDate) return;
+
+    const x = chart.timeScale().timeToCoordinate(labelDate);
     if (x === null || x < 0 || x > chartWidth) return;
 
     const label = document.createElement('div');
@@ -212,6 +234,9 @@ async function loadChart() {
     renderVolume(data.candles);
     renderHeader(data);
 
+    // 실거래일 목록 저장 (오름차순 정렬 보장)
+    tradingDates = data.candles.map(c => c.time).sort();
+
     currentDividends = data.dividends;
     currentLastClose = data.last_close;
     buildDivMap(data.dividends);
@@ -251,7 +276,6 @@ function renderMarkers(dividends) {
     prevAmount = d.amount;
 
     if (markerMode === 'monthly') {
-      // 14개월 이하: arrowUp + 금액 텍스트
       return {
         time: d.date,
         position: 'belowBar',
@@ -260,13 +284,12 @@ function renderMarkers(dividends) {
         text: `${d.amount.toLocaleString()}원`,
       };
     } else {
-      // 14개월 초과: 개별 점 마커 (텍스트 없음, 연간 합산은 오버레이로)
       return {
         time: d.date,
         position: 'belowBar',
         color: MARKER_COLORS[colorIdx],
         shape: 'circle',
-        size: 0.5,
+        size: 0.25,
       };
     }
   });
@@ -342,10 +365,7 @@ function handleCrosshair(param) {
     return;
   }
 
-  const dateStr = typeof param.time === 'string'
-    ? param.time
-    : new Date(param.time * 1000).toISOString().slice(0, 10);
-
+  const dateStr = toDateStr(param.time);
   const entry = divMap[dateStr];
   if (!entry) {
     tooltip.classList.add('hidden');
