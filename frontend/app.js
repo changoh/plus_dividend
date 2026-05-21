@@ -39,6 +39,19 @@ function monthsBetween(from, to) {
   return (t.getFullYear() - f.getFullYear()) * 12 + (t.getMonth() - f.getMonth());
 }
 
+// 현재 줌 레벨에서 "캔들 2개 폭" 에 해당하는 marker size 계산
+// Lightweight Charts 내부 공식: shapeMarkerSize = 2 * max(ceil(barSpacing/2), 3)
+// circle radius = (shapeMarkerSize/2) * size  →  size = (2*barSpacing) / shapeMarkerSize
+function calcCircleSize() {
+  const logicalRange = chart.timeScale().getVisibleLogicalRange();
+  if (!logicalRange) return 2;
+  const visibleBars = Math.max(1, logicalRange.to - logicalRange.from);
+  const dataWidth   = Math.max(1, el('chart').clientWidth - 65); // 가격 스케일 폭(≈65px) 제외
+  const barSpacing  = dataWidth / visibleBars;
+  const shapeSize   = 2 * Math.max(Math.ceil(barSpacing / 2), 3);
+  return Math.max(0.05, (2 * barSpacing) / shapeSize);
+}
+
 // targetDate 이후 첫 번째 실거래일 반환 (비거래일에 timeToCoordinate가 null 반환하는 문제 방지)
 function nearestTradingDay(targetDate) {
   let lo = 0, hi = tradingDates.length - 1;
@@ -134,16 +147,18 @@ function initChart() {
       const newMode = months > 14 ? 'annual' : 'monthly';
       if (newMode !== markerMode) {
         markerMode = newMode;
+      }
+      if (markerMode === 'annual') {
+        // 줌/패닝 시 circle 크기 재계산을 위해 항상 마커 재렌더링
         renderMarkers(currentDividends);
-      } else if (markerMode === 'annual') {
-        drawAnnualOverlay();
       }
     }, 120);
   });
 
   new ResizeObserver(() => {
     chart.applyOptions({ width: el('chart').clientWidth });
-    drawAnnualOverlay();
+    if (markerMode === 'annual') renderMarkers(currentDividends);
+    else drawAnnualOverlay();
   }).observe(el('chart'));
 }
 
@@ -272,6 +287,8 @@ function renderVolume(candles) {
 function renderMarkers(dividends) {
   let colorIdx = 0;
   let prevAmount = null;
+  // annual 모드: 현재 줌 레벨 기준으로 "캔들 2개 폭" size를 미리 계산
+  const circleSize = markerMode === 'annual' ? calcCircleSize() : 1;
 
   const markers = dividends.map(d => {
     if (prevAmount !== null && d.amount !== prevAmount) colorIdx = 1 - colorIdx;
@@ -291,7 +308,7 @@ function renderMarkers(dividends) {
         position: 'belowBar',
         color: MARKER_COLORS[colorIdx],
         shape: 'circle',
-        size: 2,
+        size: circleSize,
       };
     }
   });
