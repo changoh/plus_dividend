@@ -58,8 +58,11 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .legend-item.down { color: var(--down); }
 .legend-item.div { color: var(--green); }
 
-/* Scroll hint */
-.scroll-hint { font-size: 12px; color: var(--green); text-align: center; padding: 6px 0 12px; opacity: 0.8; }
+/* Table expand button */
+.expand-wrap { text-align: center; margin-top: 16px; }
+.expand-btn { background: var(--bg3); border: 1px solid var(--border); color: var(--text-muted); padding: 8px 28px; border-radius: 6px; cursor: pointer; font-size: 13px; font-family: inherit; transition: all 0.15s; }
+.expand-btn:hover { border-color: #4a4f5e; color: var(--text); }
+.expand-btn.hidden { display: none; }
 
 /* Table */
 .table-section { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; }

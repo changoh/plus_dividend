@@ -4,8 +4,9 @@ const el = id => document.getElementById(id);
 
 let chart, candleSeries, volumeSeries;
 let currentDividends = [];
+let currentLastClose = 0;
 let isLoading = false;
-let visibleStart = null;
+let tableShownCount = 5;
 
 const MIN_DATE = '2013-01-01';
 
@@ -70,6 +71,28 @@ function initChart() {
   }).observe(el('chart'));
 }
 
+// ── 기간 버튼 ─────────────────────────────────────────────────────────────
+const PERIODS = {
+  '6m':  () => monthsAgo(6),
+  '1y':  () => monthsAgo(12),
+  '3y':  () => monthsAgo(36),
+  '5y':  () => monthsAgo(60),
+  'all': () => MIN_DATE,
+};
+
+function initPeriodButtons() {
+  document.querySelectorAll('.range-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      chart.timeScale().setVisibleRange({
+        from: PERIODS[btn.dataset.period](),
+        to: today(),
+      });
+    });
+  });
+}
+
 // ── 데이터 로드 (정적 JSON) ────────────────────────────────────────────────
 async function loadChart() {
   if (isLoading) return;
@@ -85,18 +108,14 @@ async function loadChart() {
     renderVolume(data.candles);
     renderMarkers(data.dividends);
     renderHeader(data);
-    renderTable(data.dividends, data.last_close);
+
     currentDividends = data.dividends;
+    currentLastClose = data.last_close;
     buildDivMap(data.dividends);
+    renderTable();
 
-    // 초기 표시: 최근 6개월만 보여주고 스크롤로 과거 탐색
-    visibleStart = new Date(monthsAgo(6));
-    chart.timeScale().setVisibleRange({
-      from: monthsAgo(6),
-      to: today(),
-    });
-
-    updateScrollHint();
+    // 초기 표시: 최근 6개월
+    chart.timeScale().setVisibleRange({ from: monthsAgo(6), to: today() });
   } catch (err) {
     showToast('데이터를 불러올 수 없습니다: ' + err.message);
   } finally {
@@ -150,15 +169,20 @@ function renderHeader(data) {
     : '—';
 }
 
-function renderTable(dividends, lastClose) {
+// ── 분배금 테이블 (5개 기본, 20개씩 펼침) ──────────────────────────────────
+function renderTable() {
   const tbody = el('div-tbody');
-  if (!dividends.length) {
+  const reversed = [...currentDividends].reverse();
+
+  if (!reversed.length) {
     tbody.innerHTML = '<tr><td colspan="3" class="empty">분배금 데이터 없음</td></tr>';
+    el('expand-btn').classList.add('hidden');
     return;
   }
-  tbody.innerHTML = [...dividends].reverse().map(d => {
-    const annualYield = lastClose > 0
-      ? ((d.amount * 12) / lastClose * 100).toFixed(2) + '%'
+
+  tbody.innerHTML = reversed.slice(0, tableShownCount).map(d => {
+    const annualYield = currentLastClose > 0
+      ? ((d.amount * 12) / currentLastClose * 100).toFixed(2) + '%'
       : '—';
     return `<tr>
       <td>${d.date}</td>
@@ -166,46 +190,16 @@ function renderTable(dividends, lastClose) {
       <td class="yield-cell">${annualYield}</td>
     </tr>`;
   }).join('');
-}
 
-// ── Scroll hint ───────────────────────────────────────────────────────────────
-function updateScrollHint() {
-  const hint = el('scroll-hint');
-  if (!hint) return;
-
-  if (visibleStart <= new Date(MIN_DATE)) {
-    hint.textContent = '✓ 최초 데이터 (2013년)까지 모두 불러왔습니다';
-    hint.style.color = '#787b86';
-    return;
+  const remaining = reversed.length - tableShownCount;
+  const expandBtn = el('expand-btn');
+  if (remaining <= 0) {
+    expandBtn.classList.add('hidden');
+  } else {
+    expandBtn.classList.remove('hidden');
+    expandBtn.textContent = `▼ 더 보기 (${Math.min(20, remaining)}개)`;
   }
-
-  const loaded = Math.round((new Date() - visibleStart) / (1000 * 60 * 60 * 24 * 30));
-  hint.textContent = `↓ 스크롤하면 1개월씩 이전 데이터 보기 (현재 ${loaded}개월)`;
-  hint.style.color = '';
 }
-
-// ── 스크롤로 표시 범위 확장 ────────────────────────────────────────────────
-let scrollDebounceTimer = null;
-
-window.addEventListener('wheel', (e) => {
-  if (e.deltaY <= 0 || isLoading || !visibleStart) return;
-
-  const chartRect = el('chart').getBoundingClientRect();
-  if (chartRect.bottom < 0 || chartRect.top > window.innerHeight) return;
-
-  clearTimeout(scrollDebounceTimer);
-  scrollDebounceTimer = setTimeout(() => {
-    if (visibleStart <= new Date(MIN_DATE)) return;
-    visibleStart.setMonth(visibleStart.getMonth() - 1);
-    if (visibleStart < new Date(MIN_DATE)) visibleStart = new Date(MIN_DATE);
-
-    chart.timeScale().setVisibleRange({
-      from: visibleStart.toISOString().slice(0, 10),
-      to: today(),
-    });
-    updateScrollHint();
-  }, 150);
-}, { passive: true });
 
 // ── Crosshair tooltip ─────────────────────────────────────────────────────────
 const divMap = {};
@@ -273,4 +267,11 @@ function showLoading(show) {
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 initChart();
+initPeriodButtons();
+
+el('expand-btn').addEventListener('click', () => {
+  tableShownCount += 20;
+  renderTable();
+});
+
 loadChart();
