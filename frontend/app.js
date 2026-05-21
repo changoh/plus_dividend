@@ -4,11 +4,7 @@ const el = id => document.getElementById(id);
 
 let chart, candleSeries, volumeSeries;
 let currentDividends = [];
-let currentStart = null;
 let isLoading = false;
-
-// Phase 2 background load state
-let allDataLoaded = false;
 let visibleStart = null;
 
 const MIN_DATE = '2013-01-01';
@@ -74,19 +70,14 @@ function initChart() {
   }).observe(el('chart'));
 }
 
-// ── Phase 1: 초기 데이터 로드 ──────────────────────────────────────────────
-async function loadChart(start, preserveView = false) {
+// ── 데이터 로드 (정적 JSON) ────────────────────────────────────────────────
+async function loadChart() {
   if (isLoading) return;
   isLoading = true;
   showLoading(true);
 
-  let savedRange = null;
-  if (preserveView) {
-    try { savedRange = chart.timeScale().getVisibleLogicalRange(); } catch (_) {}
-  }
-
   try {
-    const res = await fetch(`/api/chart?start=${start}&end=${today()}`);
+    const res = await fetch('/data/chart.json');
     if (!res.ok) throw new Error(`서버 오류 ${res.status}`);
     const data = await res.json();
 
@@ -95,13 +86,15 @@ async function loadChart(start, preserveView = false) {
     renderMarkers(data.dividends);
     renderHeader(data);
     renderTable(data.dividends, data.last_close);
-
     currentDividends = data.dividends;
     buildDivMap(data.dividends);
 
-    if (preserveView && savedRange) {
-      chart.timeScale().setVisibleLogicalRange(savedRange);
-    }
+    // 초기 표시: 최근 6개월만 보여주고 스크롤로 과거 탐색
+    visibleStart = new Date(monthsAgo(6));
+    chart.timeScale().setVisibleRange({
+      from: monthsAgo(6),
+      to: today(),
+    });
 
     updateScrollHint();
   } catch (err) {
@@ -109,39 +102,6 @@ async function loadChart(start, preserveView = false) {
   } finally {
     showLoading(false);
     isLoading = false;
-  }
-}
-
-// ── Phase 2: 백그라운드 전체 로드 ─────────────────────────────────────────
-async function backgroundLoad() {
-  try {
-    const res = await fetch(`/api/chart?start=${MIN_DATE}&end=${today()}`);
-    if (!res.ok) return;
-    const data = await res.json();
-
-    // 현재 뷰 위치를 저장 후 전체 데이터로 교체
-    let savedRange = null;
-    try { savedRange = chart.timeScale().getVisibleLogicalRange(); } catch (_) {}
-
-    candleSeries.setData(data.candles.map(c => ({
-      time: c.time, open: c.open, high: c.high, low: c.low, close: c.close,
-    })));
-    volumeSeries.setData(data.candles.map(c => ({
-      time: c.time,
-      value: c.volume,
-      color: c.close >= c.open ? '#7f1d1d' : '#1e3a5f',
-    })));
-    renderMarkers(data.dividends);
-    buildDivMap(data.dividends);
-    renderTable(data.dividends, data.last_close);
-
-    // 뷰 복원 — 사용자가 보던 구간 그대로 유지
-    if (savedRange) chart.timeScale().setVisibleLogicalRange(savedRange);
-
-    allDataLoaded = true;
-    updateScrollHint();
-  } catch (_) {
-    // 백그라운드 실패 시 기존 방식 유지, 별도 안내 없음
   }
 }
 
@@ -213,56 +173,37 @@ function updateScrollHint() {
   const hint = el('scroll-hint');
   if (!hint) return;
 
-  const refDate = allDataLoaded ? visibleStart : new Date(currentStart);
-  const isAtMin = refDate <= new Date(MIN_DATE);
-
-  if (isAtMin) {
+  if (visibleStart <= new Date(MIN_DATE)) {
     hint.textContent = '✓ 최초 데이터 (2013년)까지 모두 불러왔습니다';
     hint.style.color = '#787b86';
     return;
   }
 
-  const loaded = Math.round((new Date() - refDate) / (1000 * 60 * 60 * 24 * 30));
-  const status = allDataLoaded ? '' : ' ㅤ(백그라운드 로딩 중…)';
-  hint.textContent = `↓ 스크롤하면 1개월씩 이전 데이터 보기 (현재 ${loaded}개월)${status}`;
+  const loaded = Math.round((new Date() - visibleStart) / (1000 * 60 * 60 * 24 * 30));
+  hint.textContent = `↓ 스크롤하면 1개월씩 이전 데이터 보기 (현재 ${loaded}개월)`;
   hint.style.color = '';
 }
 
-// ── 스크롤로 데이터 확장 ──────────────────────────────────────────────────
+// ── 스크롤로 표시 범위 확장 ────────────────────────────────────────────────
 let scrollDebounceTimer = null;
 
 window.addEventListener('wheel', (e) => {
-  if (e.deltaY <= 0 || isLoading) return;
+  if (e.deltaY <= 0 || isLoading || !visibleStart) return;
 
   const chartRect = el('chart').getBoundingClientRect();
   if (chartRect.bottom < 0 || chartRect.top > window.innerHeight) return;
 
   clearTimeout(scrollDebounceTimer);
   scrollDebounceTimer = setTimeout(() => {
+    if (visibleStart <= new Date(MIN_DATE)) return;
+    visibleStart.setMonth(visibleStart.getMonth() - 1);
+    if (visibleStart < new Date(MIN_DATE)) visibleStart = new Date(MIN_DATE);
 
-    if (allDataLoaded) {
-      // Phase 2 완료: API 호출 없이 visible range만 조작 → 즉각 반응
-      if (visibleStart <= new Date(MIN_DATE)) return;
-      visibleStart.setMonth(visibleStart.getMonth() - 1);
-      if (visibleStart < new Date(MIN_DATE)) visibleStart = new Date(MIN_DATE);
-
-      chart.timeScale().setVisibleRange({
-        from: visibleStart.toISOString().slice(0, 10),
-        to: today(),
-      });
-      updateScrollHint();
-
-    } else {
-      // Phase 2 진행 중: 기존 방식(API 호출)으로 fallback
-      if (currentStart <= MIN_DATE) return;
-      const d = new Date(currentStart);
-      d.setMonth(d.getMonth() - 1);
-      currentStart = d.toISOString().slice(0, 10);
-      if (currentStart < MIN_DATE) currentStart = MIN_DATE;
-      visibleStart = new Date(currentStart);
-      loadChart(currentStart, true);
-    }
-
+    chart.timeScale().setVisibleRange({
+      from: visibleStart.toISOString().slice(0, 10),
+      to: today(),
+    });
+    updateScrollHint();
   }, 150);
 }, { passive: true });
 
@@ -332,8 +273,4 @@ function showLoading(show) {
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 initChart();
-currentStart = monthsAgo(6);
-visibleStart = new Date(currentStart);
-loadChart(currentStart).then(() => {
-  backgroundLoad(); // Phase 2: 백그라운드에서 전체 데이터 로드
-});
+loadChart();
