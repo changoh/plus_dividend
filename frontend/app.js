@@ -111,6 +111,8 @@ function initChart() {
     wickUpColor: '#ef4444',
     wickDownColor: '#1d4ed8',
     borderVisible: false,
+    priceLineVisible: false,
+    lastValueVisible: false,
   });
 
   volumeSeries = chart.addHistogramSeries({
@@ -289,7 +291,7 @@ function renderMarkers(dividends) {
         position: 'belowBar',
         color: MARKER_COLORS[colorIdx],
         shape: 'circle',
-        size: 0.25,
+        size: 2,
       };
     }
   });
