@@ -139,6 +139,7 @@ function initChart() {
 
   chart.subscribeCrosshairMove(handleCrosshair);
 
+  // 모드 감지 전용 (monthly ↔ annual 전환 시 마커 재렌더)
   chart.timeScale().subscribeVisibleTimeRangeChange(range => {
     if (!range || !currentDividends.length) return;
     clearTimeout(markerDebounceTimer);
@@ -147,11 +148,17 @@ function initChart() {
       const newMode = months > 14 ? 'annual' : 'monthly';
       if (newMode !== markerMode) {
         markerMode = newMode;
-      }
-      if (markerMode === 'annual') {
-        // 줌/패닝 시 circle 크기 재계산을 위해 항상 마커 재렌더링
         renderMarkers(currentDividends);
       }
+    }, 120);
+  });
+
+  // circle 크기 업데이트 전용 — barSpacing 변화를 직접 감지
+  chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
+    if (markerMode !== 'annual' || !currentDividends.length) return;
+    clearTimeout(markerDebounceTimer);
+    markerDebounceTimer = setTimeout(() => {
+      renderMarkers(currentDividends);
     }, 120);
   });
 
@@ -232,6 +239,15 @@ function initPeriodButtons() {
         from: PERIODS[btn.dataset.period](),
         to: today(),
       });
+      // debounce 없이 즉시 모드/크기 반영
+      setTimeout(() => {
+        if (!currentDividends.length) return;
+        const range = chart.timeScale().getVisibleRange();
+        if (!range) return;
+        const months = monthsBetween(range.from, range.to);
+        markerMode = months > 14 ? 'annual' : 'monthly';
+        renderMarkers(currentDividends);
+      }, 50);
     });
   });
 }
