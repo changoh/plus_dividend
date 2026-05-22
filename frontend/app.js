@@ -135,7 +135,7 @@ function initChart() {
 
   chart.subscribeCrosshairMove(handleCrosshair);
 
-  // 모드 감지 전용 (monthly ↔ annual 전환 시 마커 재렌더)
+  // 모드 감지 전용 (monthly ↔ annual 전환 시 마커 재렌더) — debounce 유지
   chart.timeScale().subscribeVisibleTimeRangeChange(range => {
     if (!range || !currentDividends.length) return;
     clearTimeout(markerDebounceTimer);
@@ -149,20 +149,27 @@ function initChart() {
     }, 120);
   });
 
-  // circle 크기 업데이트 전용 — barSpacing 변화를 직접 감지
+  // circle 위치/크기 업데이트 — RAF로 캔들과 같은 frame에 동기 그리기 (lag 제거)
   chart.timeScale().subscribeVisibleLogicalRangeChange(() => {
     if (markerMode !== 'annual' || !currentDividends.length) return;
-    clearTimeout(markerDebounceTimer);
-    markerDebounceTimer = setTimeout(() => {
-      renderMarkers(currentDividends);
-    }, 120);
+    scheduleOverlayFrame();
   });
 
   new ResizeObserver(() => {
     chart.applyOptions({ width: el('chart').clientWidth });
-    if (markerMode === 'annual') renderMarkers(currentDividends);
+    if (markerMode === 'annual') scheduleOverlayFrame();
     else drawAnnualOverlay();
   }).observe(el('chart'));
+}
+
+// 다음 repaint 직전에 overlay 다시 그림. 한 frame에 여러 이벤트가 와도 1회만 실행.
+let overlayRafId = null;
+function scheduleOverlayFrame() {
+  if (overlayRafId !== null) return;
+  overlayRafId = requestAnimationFrame(() => {
+    overlayRafId = null;
+    drawAnnualOverlay();
+  });
 }
 
 // ── 연간 오버레이: 연말 빨간 세로선 + 상단 고정 연간 합산 텍스트 ────────────
