@@ -39,17 +39,22 @@ function monthsBetween(from, to) {
   return (t.getFullYear() - f.getFullYear()) * 12 + (t.getMonth() - f.getMonth());
 }
 
-// 현재 줌 레벨에서 "캔들 2개 폭" 에 해당하는 marker size 계산
-// Lightweight Charts 내부 공식: shapeMarkerSize = 2 * max(ceil(barSpacing/2), 3)
-// circle radius = (shapeMarkerSize/2) * size  →  size = (2*barSpacing) / shapeMarkerSize
+// 현재 줌 레벨에서 캔들 폭에 비례하는 circle marker size 계산
+// LWC v4.1.3 실제 공식: diameter = ceiledOdd(clamp(barSpacing, 12, 30) * 0.8) * item.size
+//   - clamp는 barSpacing에 적용 (item.size 아님)
+//   - item.size는 multiplier → < 1이면 작아지고, > 1이면 커짐
+// 목표: diameter = 2 * barSpacing (캔들 2개 폭)
+//   → item.size = (2 * barSpacing) / ceiledOdd(clamp(barSpacing, 12, 30) * 0.8)
 function calcCircleSize() {
   const logicalRange = chart.timeScale().getVisibleLogicalRange();
-  if (!logicalRange) return 2;
+  if (!logicalRange) return 1;
   const visibleBars = Math.max(1, logicalRange.to - logicalRange.from);
-  const dataWidth   = Math.max(1, el('chart').clientWidth - 65); // 가격 스케일 폭(≈65px) 제외
+  const dataWidth   = Math.max(1, el('chart').clientWidth - 65);
   const barSpacing  = dataWidth / visibleBars;
-  const shapeSize   = 2 * Math.max(Math.ceil(barSpacing / 2), 3);
-  return Math.max(0.05, (2 * barSpacing) / shapeSize);
+  const clamped     = Math.min(30, Math.max(12, barSpacing));
+  let baseDiameter  = Math.ceil(clamped * 0.8);
+  if (baseDiameter % 2 === 0) baseDiameter += 1; // ceiledOdd
+  return Math.max(0.05, (2 * barSpacing) / baseDiameter);
 }
 
 // targetDate 이후 첫 번째 실거래일 반환 (비거래일에 timeToCoordinate가 null 반환하는 문제 방지)
