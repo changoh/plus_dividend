@@ -119,15 +119,19 @@ function initChart() {
     },
   });
 
-  // 마우스 휠 = 1캔들씩 좌우 패닝 (증권사 차트 스타일)
+  // 마우스 휠 = 우측 끝(to) 고정, 좌측(from)을 이동시켜 캔들 수만 증감
+  //   휠 아래(deltaY>0) → from 좌측으로 → 캔들 수 증가
+  //   휠 위(deltaY<0)   → from 우측으로 → 캔들 수 감소
   el('chart').addEventListener('wheel', (e) => {
     e.preventDefault();
     const range = chart.timeScale().getVisibleLogicalRange();
     if (!range) return;
-    const direction = e.deltaY < 0 ? 1 : -1; // 휠 위 → 미래(우측), 휠 아래 → 과거(좌측)
+    const step = e.deltaY > 0 ? -1 : 1;
+    const newFrom = range.from + step;
+    if (range.to - newFrom < 5) return; // 최소 5개 캔들 유지
     chart.timeScale().setVisibleLogicalRange({
-      from: range.from + direction,
-      to:   range.to   + direction,
+      from: newFrom,
+      to:   range.to,
     });
   }, { passive: false });
 
