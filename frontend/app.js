@@ -111,8 +111,25 @@ function initChart() {
       },
     },
     handleScroll: true,
-    handleScale: true,
+    handleScale: {
+      mouseWheel: false,        // 휠 줌 비활성 — 아래에서 1캔들씩 패닝으로 처리
+      pinch: true,
+      axisPressedMouseMove: true,
+      axisDoubleClickReset: true,
+    },
   });
+
+  // 마우스 휠 = 1캔들씩 좌우 패닝 (증권사 차트 스타일)
+  el('chart').addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const range = chart.timeScale().getVisibleLogicalRange();
+    if (!range) return;
+    const direction = e.deltaY < 0 ? 1 : -1; // 휠 위 → 미래(우측), 휠 아래 → 과거(좌측)
+    chart.timeScale().setVisibleLogicalRange({
+      from: range.from + direction,
+      to:   range.to   + direction,
+    });
+  }, { passive: false });
 
   candleSeries = chart.addCandlestickSeries({
     upColor: '#ef4444',
@@ -141,7 +158,7 @@ function initChart() {
     clearTimeout(markerDebounceTimer);
     markerDebounceTimer = setTimeout(() => {
       const months = monthsBetween(range.from, range.to);
-      const newMode = months > 14 ? 'annual' : 'monthly';
+      const newMode = months > 36 ? 'annual' : 'monthly';
       if (newMode !== markerMode) {
         markerMode = newMode;
         renderMarkers(currentDividends);
@@ -279,7 +296,7 @@ function initPeriodButtons() {
         const range = chart.timeScale().getVisibleRange();
         if (!range) return;
         const months = monthsBetween(range.from, range.to);
-        markerMode = months > 14 ? 'annual' : 'monthly';
+        markerMode = months > 36 ? 'annual' : 'monthly';
         renderMarkers(currentDividends);
       }, 50);
     });
