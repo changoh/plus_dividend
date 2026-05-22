@@ -126,7 +126,7 @@ function initChart() {
     e.preventDefault();
     const range = chart.timeScale().getVisibleLogicalRange();
     if (!range) return;
-    const step = e.deltaY > 0 ? -1 : 1;
+    const step = e.deltaY > 0 ? -10 : 10;
     const newFrom = range.from + step;
     if (range.to - newFrom < 5) return; // 최소 5개 캔들 유지
     chart.timeScale().setVisibleLogicalRange({
