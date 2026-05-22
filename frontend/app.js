@@ -39,22 +39,13 @@ function monthsBetween(from, to) {
   return (t.getFullYear() - f.getFullYear()) * 12 + (t.getMonth() - f.getMonth());
 }
 
-// 현재 줌 레벨에서 캔들 폭에 비례하는 circle marker size 계산
-// LWC v4.1.3 실제 공식: diameter = ceiledOdd(clamp(barSpacing, 12, 30) * 0.8) * item.size
-//   - clamp는 barSpacing에 적용 (item.size 아님)
-//   - item.size는 multiplier → < 1이면 작아지고, > 1이면 커짐
-// 목표: diameter = 2 * barSpacing (캔들 2개 폭)
-//   → item.size = (2 * barSpacing) / ceiledOdd(clamp(barSpacing, 12, 30) * 0.8)
-function calcCircleSize() {
+// 현재 줌 레벨에서 캔들 폭(barSpacing) 계산 — 원 직경에 직접 사용
+function currentBarSpacing() {
   const logicalRange = chart.timeScale().getVisibleLogicalRange();
-  if (!logicalRange) return 1;
+  if (!logicalRange) return 8;
   const visibleBars = Math.max(1, logicalRange.to - logicalRange.from);
   const dataWidth   = Math.max(1, el('chart').clientWidth - 65);
-  const barSpacing  = dataWidth / visibleBars;
-  const clamped     = Math.min(30, Math.max(12, barSpacing));
-  let baseDiameter  = Math.ceil(clamped * 0.8);
-  if (baseDiameter % 2 === 0) baseDiameter += 1; // ceiledOdd
-  return Math.max(0.05, (2 * barSpacing) / baseDiameter);
+  return dataWidth / visibleBars;
 }
 
 // targetDate 이후 첫 번째 실거래일 반환 (비거래일에 timeToCoordinate가 null 반환하는 문제 방지)
@@ -224,6 +215,37 @@ function drawAnnualOverlay() {
       `<div style="color:${MARKER_COLORS[colorIdx]}">${amount.toLocaleString()}원</div>`;
     overlay.appendChild(label);
   });
+
+  // 분배금 원 — 캔들 2개 폭에 비례하여 직접 그림 (LWC marker 대체)
+  drawDividendCircles(overlay, chartWidth);
+}
+
+function drawDividendCircles(overlay, chartWidth) {
+  const barSpacing = currentBarSpacing();
+  const diameter = Math.max(1, barSpacing * 2); // 캔들 2개 폭
+
+  let colorIdx = 0;
+  let prevAmount = null;
+  currentDividends.forEach(d => {
+    if (prevAmount !== null && d.amount !== prevAmount) colorIdx = 1 - colorIdx;
+    prevAmount = d.amount;
+
+    const low = divPriceMap[d.date];
+    if (low === undefined) return;
+    const x = chart.timeScale().timeToCoordinate(d.date);
+    if (x === null || x < -diameter || x > chartWidth + diameter) return;
+    const y = candleSeries.priceToCoordinate(low);
+    if (y === null) return;
+
+    const circle = document.createElement('div');
+    circle.className = 'div-circle';
+    circle.style.left = `${x}px`;
+    circle.style.top = `${y + 4 + diameter / 2}px`; // 캔들 low 아래 4px + 반지름
+    circle.style.width = `${diameter}px`;
+    circle.style.height = `${diameter}px`;
+    circle.style.backgroundColor = MARKER_COLORS[colorIdx];
+    overlay.appendChild(circle);
+  });
 }
 
 // ── 기간 버튼 ─────────────────────────────────────────────────────────────
@@ -278,6 +300,7 @@ async function loadChart() {
     currentDividends = data.dividends;
     currentLastClose = data.last_close;
     buildDivMap(data.dividends);
+    buildDivPriceMap(data.candles, data.dividends);
     renderMarkers(data.dividends);
     renderTable();
 
@@ -306,34 +329,26 @@ function renderVolume(candles) {
 }
 
 function renderMarkers(dividends) {
+  // annual 모드: LWC markers 비움 → drawAnnualOverlay가 직접 원을 그림 (LWC size 제약 우회)
+  if (markerMode === 'annual') {
+    candleSeries.setMarkers([]);
+    drawAnnualOverlay();
+    return;
+  }
+
   let colorIdx = 0;
   let prevAmount = null;
-  // annual 모드: 현재 줌 레벨 기준으로 "캔들 2개 폭" size를 미리 계산
-  const circleSize = markerMode === 'annual' ? calcCircleSize() : 1;
-
   const markers = dividends.map(d => {
     if (prevAmount !== null && d.amount !== prevAmount) colorIdx = 1 - colorIdx;
     prevAmount = d.amount;
-
-    if (markerMode === 'monthly') {
-      return {
-        time: d.date,
-        position: 'belowBar',
-        color: MARKER_COLORS[colorIdx],
-        shape: 'arrowUp',
-        text: `${d.amount.toLocaleString()}원`,
-      };
-    } else {
-      return {
-        time: d.date,
-        position: 'belowBar',
-        color: MARKER_COLORS[colorIdx],
-        shape: 'circle',
-        size: circleSize,
-      };
-    }
+    return {
+      time: d.date,
+      position: 'belowBar',
+      color: MARKER_COLORS[colorIdx],
+      shape: 'arrowUp',
+      text: `${d.amount.toLocaleString()}원`,
+    };
   });
-
   candleSeries.setMarkers(markers);
   drawAnnualOverlay();
 }
@@ -386,6 +401,7 @@ function renderTable() {
 
 // ── Crosshair tooltip ─────────────────────────────────────────────────────────
 const divMap = {};
+const divPriceMap = {}; // 분배금 날짜 → 해당 캔들 low (overlay 원 y좌표 계산용)
 
 function buildDivMap(dividends) {
   Object.keys(divMap).forEach(k => delete divMap[k]);
@@ -395,6 +411,17 @@ function buildDivMap(dividends) {
     if (prevAmount !== null && d.amount !== prevAmount) colorIdx = 1 - colorIdx;
     prevAmount = d.amount;
     divMap[d.date] = { amount: d.amount, color: MARKER_COLORS[colorIdx] };
+  });
+}
+
+function buildDivPriceMap(candles, dividends) {
+  Object.keys(divPriceMap).forEach(k => delete divPriceMap[k]);
+  const lowByDate = {};
+  candles.forEach(c => { lowByDate[c.time] = c.low; });
+  dividends.forEach(d => {
+    if (lowByDate[d.date] !== undefined) {
+      divPriceMap[d.date] = lowByDate[d.date];
+    }
   });
 }
 
