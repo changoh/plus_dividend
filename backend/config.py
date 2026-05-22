@@ -3,7 +3,7 @@ from pathlib import Path
 
 TICKER = "161510"
 NAME = "PLUS 고배당주"
-DEFAULT_START = "2020-01-01"
+DEFAULT_START = "2013-01-01"
 CACHE_TTL_SECONDS = 60 * 60 * 6
 
 BASE_DIR = Path(__file__).parent.parent
