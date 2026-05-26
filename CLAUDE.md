@@ -30,6 +30,8 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
+테스트 스위트 없음 — 변경 후 브라우저에서 직접 확인.
+
 ## 아키텍처
 
 ### 전체 데이터 흐름
@@ -48,6 +50,27 @@ pip install -r requirements.txt
 
 로컬 개발 시에는 FastAPI(`/api/chart`)가 live API로 동작하지만, **프론트엔드는 항상 `/data/chart.json` 정적 파일을 사용**한다.
 
+### `chart.json` 스키마
+
+프론트엔드와 데이터 생성 스크립트 사이의 유일한 데이터 계약:
+
+```json
+{
+  "ticker": "161510",
+  "name": "PLUS 고배당주",
+  "last_close": 14850.0,
+  "ttm_yield": 5.43,
+  "candles": [
+    { "time": "YYYY-MM-DD", "open": 0.0, "high": 0.0, "low": 0.0, "close": 0.0, "volume": 0 }
+  ],
+  "dividends": [
+    { "date": "YYYY-MM-DD", "amount": 86 }
+  ]
+}
+```
+
+`ttm_yield` = 최근 12개월 분배금 합산 / 현재가 × 100. `dividends[].date`는 항상 실거래일 (휴일이면 직전 거래일로 snap).
+
 ### 백엔드 레이어 (`backend/`)
 
 - **`app.py`**: FastAPI 앱. `GET /api/chart` 엔드포인트 (로컬 개발용). 정적 파일 마운트는 반드시 API 라우트 등록 이후에 위치해야 함 (순서 중요).
@@ -64,6 +87,12 @@ pip install -r requirements.txt
   - `tradingDates[]`: 비거래일에 `timeToCoordinate()`가 `null`을 반환하는 문제를 방지하기 위해 실거래일 목록을 유지.
 - **`index.html`**: CDN으로 TradingView Lightweight Charts v4.1.3, Pretendard 폰트 로드. 빌드 스텝 없음.
 - **`style.css`**: CSS 변수 기반 다크 테마. 한국 주식 색상 관례 (빨강=상승, 파랑=하락).
+
+### 차트 인터랙션
+
+- **휠**: 우측 끝(to) 고정, 좌측(from)을 10캔들씩 이동 (확대/축소).
+- **오른쪽 드래그** (≥30px): `#selection-band` 오버레이로 선택 구간 표시 → mouseup 시 해당 범위로 줌.
+- **왼쪽 드래그** (≥30px): 현재 시작일 기준 3년 이전으로 확장.
 
 ### 분배금 마커 렌더링 (두 가지 모드)
 

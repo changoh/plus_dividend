@@ -363,6 +363,85 @@ function extendThreeYearsBack() {
   });
 }
 
+// ── 스크롤바 ─────────────────────────────────────────────────────────────────
+const scrollDrag = { active: false, startX: 0, startFrom: 0, startTo: 0 };
+
+function updateScrollbar() {
+  const total = tradingDates.length;
+  if (total === 0) return;
+  const range = chart.timeScale().getVisibleLogicalRange();
+  if (!range) return;
+
+  const visibleBars = range.to - range.from;
+  const thumbRatio = Math.min(1, visibleBars / total);
+  const scrollableRange = Math.max(1, total - visibleBars);
+  const scrollProgress = Math.max(0, Math.min(range.from, scrollableRange)) / scrollableRange;
+  const leftRatio = scrollProgress * (1 - thumbRatio);
+
+  el('scrollbar-thumb').style.width = (thumbRatio * 100).toFixed(2) + '%';
+  el('scrollbar-thumb').style.left  = (leftRatio * 100).toFixed(2) + '%';
+}
+
+function initScrollbar() {
+  const thumbEl = el('scrollbar-thumb');
+  const trackEl = el('scrollbar-track');
+
+  // 썸 드래그 시작
+  thumbEl.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const range = chart.timeScale().getVisibleLogicalRange();
+    if (!range) return;
+    scrollDrag.active = true;
+    scrollDrag.startX = e.clientX;
+    scrollDrag.startFrom = range.from;
+    scrollDrag.startTo = range.to;
+    thumbEl.classList.add('dragging');
+  });
+
+  // 썸 드래그 이동 — 줌 레벨(visibleBars) 불변, 위치만 이동
+  document.addEventListener('mousemove', (e) => {
+    if (!scrollDrag.active) return;
+    const total = tradingDates.length;
+    if (total === 0) return;
+
+    const trackW = trackEl.clientWidth;
+    if (trackW === 0) return;
+
+    const visibleBars = scrollDrag.startTo - scrollDrag.startFrom;
+    const deltaLogical = (e.clientX - scrollDrag.startX) / trackW * total;
+    const newFrom = Math.max(0, Math.min(scrollDrag.startFrom + deltaLogical, total - visibleBars));
+
+    chart.timeScale().setVisibleLogicalRange({ from: newFrom, to: newFrom + visibleBars });
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!scrollDrag.active) return;
+    scrollDrag.active = false;
+    thumbEl.classList.remove('dragging');
+  });
+
+  // 트랙 클릭 → 클릭 위치를 중심으로 이동
+  trackEl.addEventListener('click', (e) => {
+    if (thumbEl.contains(e.target)) return;
+    const total = tradingDates.length;
+    if (total === 0) return;
+
+    const rect = trackEl.getBoundingClientRect();
+    const clickRatio = (e.clientX - rect.left) / rect.width;
+    const range = chart.timeScale().getVisibleLogicalRange();
+    if (!range) return;
+
+    const visibleBars = range.to - range.from;
+    const newFrom = Math.max(0, Math.min(clickRatio * total - visibleBars / 2, total - visibleBars));
+
+    chart.timeScale().setVisibleLogicalRange({ from: newFrom, to: newFrom + visibleBars });
+  });
+
+  // 차트 범위 변경 시 스크롤바 자동 갱신
+  chart.timeScale().subscribeVisibleLogicalRangeChange(updateScrollbar);
+}
+
 // ── 기간 버튼 ─────────────────────────────────────────────────────────────
 const PERIODS = {
   '1y':  () => monthsAgo(12),
@@ -589,6 +668,7 @@ function showLoading(show) {
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 initChart();
+initScrollbar();
 initPeriodButtons();
 initDragGestures();
 
