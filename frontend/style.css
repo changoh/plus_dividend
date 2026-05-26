@@ -77,7 +77,11 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .calc-section { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 20px; }
 .calc-inputs { display: flex; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
 .calc-input-group { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 180px; }
+.calc-label-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .calc-label { font-size: 12px; color: var(--text-muted); font-weight: 500; }
+.calc-presets { display: flex; gap: 4px; }
+.calc-preset-btn { background: var(--bg); border: 1px solid var(--border); color: var(--text-muted); padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; font-family: inherit; transition: all 0.15s; white-space: nowrap; }
+.calc-preset-btn:hover { border-color: #4a4f5e; color: var(--text); }
 .calc-input { background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 9px 12px; font-size: 14px; font-family: inherit; outline: none; transition: border-color 0.15s; }
 .calc-input:focus { border-color: #3b82f6; }
 .calc-input::-webkit-inner-spin-button, .calc-input::-webkit-outer-spin-button { -webkit-appearance: none; }

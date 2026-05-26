@@ -66,8 +66,15 @@
       <h2 class="section-title">투자 수익 계산기</h2>
       <div class="calc-inputs">
         <div class="calc-input-group">
-          <label class="calc-label" for="calc-amount">투자금 (원)</label>
-          <input id="calc-amount" class="calc-input" type="number" placeholder="10000000" min="1" />
+          <div class="calc-label-row">
+            <label class="calc-label" for="calc-amount">투자금 (원)</label>
+            <div class="calc-presets">
+              <button class="calc-preset-btn" data-amount="10000000">1,000만</button>
+              <button class="calc-preset-btn" data-amount="50000000">5,000만</button>
+              <button class="calc-preset-btn" data-amount="100000000">1억</button>
+            </div>
+          </div>
+          <input id="calc-amount" class="calc-input" type="text" inputmode="numeric" placeholder="10,000,000" />
         </div>
         <div class="calc-input-group">
           <label class="calc-label" for="calc-date">투자 시기</label>

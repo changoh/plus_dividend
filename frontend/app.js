@@ -666,8 +666,12 @@ function handleCrosshair(param) {
 }
 
 // ── 투자 계산기 ──────────────────────────────────────────────────────────────
+function parseAmount() {
+  return parseInt(el('calc-amount').value.replace(/[^\d]/g, ''), 10) || 0;
+}
+
 function runCalculator() {
-  const amountVal = parseFloat(el('calc-amount').value);
+  const amountVal = parseAmount();
   const dateVal = el('calc-date').value;
 
   // 입력 미완 시 결과 초기화
@@ -731,8 +735,34 @@ function runCalculator() {
 }
 
 function initCalculator() {
-  el('calc-amount').addEventListener('input', runCalculator);
+  const amtEl = el('calc-amount');
+
+  amtEl.addEventListener('input', () => {
+    const sel = amtEl.selectionStart;
+    const oldVal = amtEl.value;
+    // 커서 왼쪽에 있는 숫자 개수를 기준으로 포맷 후 커서 위치 복원
+    const digitsBeforeCursor = (oldVal.slice(0, sel).match(/\d/g) || []).length;
+    const raw = oldVal.replace(/[^\d]/g, '');
+    const formatted = raw ? parseInt(raw, 10).toLocaleString('ko-KR') : '';
+    amtEl.value = formatted;
+    let digitCount = 0, newPos = formatted.length;
+    for (let i = 0; i < formatted.length; i++) {
+      if (/\d/.test(formatted[i])) digitCount++;
+      if (digitCount === digitsBeforeCursor) { newPos = i + 1; break; }
+    }
+    if (digitsBeforeCursor === 0) newPos = 0;
+    amtEl.setSelectionRange(newPos, newPos);
+    runCalculator();
+  });
+
   el('calc-date').addEventListener('change', runCalculator);
+
+  document.querySelectorAll('.calc-preset-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      amtEl.value = parseInt(btn.dataset.amount, 10).toLocaleString('ko-KR');
+      runCalculator();
+    });
+  });
 }
 
 // ── Toast / Loading ───────────────────────────────────────────────────────────
