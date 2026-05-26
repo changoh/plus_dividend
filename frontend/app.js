@@ -553,9 +553,6 @@ function renderHeader(data) {
   el('last-close').textContent = data.last_close
     ? data.last_close.toLocaleString('ko-KR') + '원'
     : '—';
-  el('ttm-yield').textContent = data.ttm_yield != null
-    ? data.ttm_yield.toFixed(2) + '%'
-    : '—';
 }
 
 // ── 분배금 테이블 (5개 기본, 20개씩 펼침 / 접기) ─────────────────────────
