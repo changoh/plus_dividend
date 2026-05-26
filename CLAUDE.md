@@ -69,7 +69,7 @@ pip install -r requirements.txt
 }
 ```
 
-`ttm_yield` = 최근 12개월 분배금 합산 / 현재가 × 100. `dividends[].date`는 항상 실거래일 (휴일이면 직전 거래일로 snap).
+`ttm_yield` = 최근 12개월 분배금 합산 / 현재가 × 100 (생성은 되지만 현재 UI에 표시하지 않음). `dividends[].date`는 항상 실거래일 (휴일이면 직전 거래일로 snap).
 
 ### 백엔드 레이어 (`backend/`)
 
@@ -82,17 +82,26 @@ pip install -r requirements.txt
 ### 프론트엔드 (`frontend/`)
 
 - **`app.js`**: `/data/chart.json` 단일 fetch 후 전체 렌더링. API 호출 없음.
+  - `tradingDates[]`: 비거래일에 `timeToCoordinate()`가 `null`을 반환하는 문제를 방지하기 위해 실거래일 목록을 유지.
+  - `candleCloseMap{}`: 날짜 → 종가 맵. 투자 계산기에서 매수가 조회에 사용.
   - `buildDivMap()`: 분배금 날짜 → `{ amount, color }` 매핑. crosshair tooltip에 사용.
   - `buildDivPriceMap()`: 분배금 날짜 → 해당 캔들 low 가격. 오버레이 원 y좌표 계산에 사용.
-  - `tradingDates[]`: 비거래일에 `timeToCoordinate()`가 `null`을 반환하는 문제를 방지하기 위해 실거래일 목록을 유지.
 - **`index.html`**: CDN으로 TradingView Lightweight Charts v4.1.3, Pretendard 폰트 로드. 빌드 스텝 없음.
 - **`style.css`**: CSS 변수 기반 다크 테마. 한국 주식 색상 관례 (빨강=상승, 파랑=하락).
+
+### 페이지 레이아웃 순서
+
+```
+헤더 (현재가) → 기간 버튼 → 차트 → 스크롤바 → 범례 → 투자 계산기 → 분배금 지급 이력 테이블
+```
 
 ### 차트 인터랙션
 
 - **휠**: 우측 끝(to) 고정, 좌측(from)을 10캔들씩 이동 (확대/축소).
 - **오른쪽 드래그** (≥30px): `#selection-band` 오버레이로 선택 구간 표시 → mouseup 시 해당 범위로 줌.
 - **왼쪽 드래그** (≥30px): 현재 시작일 기준 3년 이전으로 확장.
+- **스크롤바 썸 드래그**: 줌 레벨(visibleBars) 불변, 논리 범위만 이동. 드래그 수식: `deltaLogical = (deltaPixels / trackWidth) * total`.
+- **스크롤바 트랙 클릭**: 클릭 위치를 중심으로 차트 이동.
 
 ### 분배금 마커 렌더링 (두 가지 모드)
 
@@ -105,6 +114,19 @@ zoom 레벨에 따라 모드가 자동 전환된다 (`monthsBetween > 36` → an
   - `div.div-circle`: 분배금 원 (캔들 2개 폭에 비례한 직경)
 
 마커 색상: 금액이 변경될 때마다 교대 (`MARKER_COLORS = ['#22c55e', '#f59e0b']`). `renderMarkers()`, `buildDivMap()`, `drawDividendCircles()` 세 곳에서 동일 로직을 독립적으로 수행하므로 **수정 시 세 함수 모두 변경**해야 함.
+
+### 투자 계산기
+
+차트 아래, 분배금 테이블 위에 위치. 투자금과 투자 시기를 입력받아 4개 결과 카드를 실시간 갱신한다.
+
+- **보유 수량**: `Math.floor(투자금 / 매수종가)` — 소수점 매수 불가.
+- **누적 분배금**: 투자일 **이후(strict, `d.date > tradingDate`)** 분배금 × 수량 합산. 투자 당일 분배금은 제외 (한국 증권결제 D+2 규칙 반영).
+- **평가손익**: `(현재가 - 매수가) × 수량`, 색상: 수익=빨강/손실=파랑.
+- **합산 수익**: 분배금 + 평가손익 + 투자원금 대비 수익률%.
+
+투자 시기가 비거래일이면 `nearestTradingDay()`로 이후 첫 거래일로 snap하여 결과 서브라인에 실제 기준일을 표시한다.
+
+투자금 입력 필드는 `type="text"` + `inputmode="numeric"`으로 천단위 쉼표를 실시간 표시하며, 커서 위치를 숫자 개수 기준으로 복원한다. 1,000만 / 5,000만 / 1억 빠른 입력 버튼 제공.
 
 ## 데이터 갱신 스크립트
 
