@@ -278,10 +278,10 @@ function drawDividendCircles(overlay, chartWidth) {
 
 // ── 기간 버튼 ─────────────────────────────────────────────────────────────
 const PERIODS = {
-  '6m':  () => monthsAgo(6),
   '1y':  () => monthsAgo(12),
   '3y':  () => monthsAgo(36),
   '5y':  () => monthsAgo(60),
+  '10y': () => monthsAgo(120),
   'all': () => MIN_DATE,
 };
 
@@ -332,7 +332,7 @@ async function loadChart() {
     renderMarkers(data.dividends);
     renderTable();
 
-    chart.timeScale().setVisibleRange({ from: monthsAgo(6), to: today() });
+    chart.timeScale().setVisibleRange({ from: monthsAgo(12), to: today() });
   } catch (err) {
     showToast('데이터를 불러올 수 없습니다: ' + err.message);
   } finally {
