@@ -73,6 +73,24 @@ html, body { height: 100%; background: var(--bg); color: var(--text); font-famil
 .legend-item.down { color: var(--down); }
 .legend-item.div { color: var(--green); }
 
+/* Calculator */
+.calc-section { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 20px; }
+.calc-inputs { display: flex; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
+.calc-input-group { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 180px; }
+.calc-label { font-size: 12px; color: var(--text-muted); font-weight: 500; }
+.calc-input { background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; color: var(--text); padding: 9px 12px; font-size: 14px; font-family: inherit; outline: none; transition: border-color 0.15s; }
+.calc-input:focus { border-color: #3b82f6; }
+.calc-input::-webkit-inner-spin-button, .calc-input::-webkit-outer-spin-button { -webkit-appearance: none; }
+.calc-results { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.calc-card { background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
+.calc-card-total { border-color: #3b82f6; background: rgba(30,64,175,0.15); }
+.calc-card-label { font-size: 11px; color: var(--text-muted); margin-bottom: 6px; font-weight: 500; }
+.calc-card-value { font-size: 18px; font-weight: 700; }
+.calc-card-value.profit { color: var(--up); }
+.calc-card-value.loss { color: var(--down); }
+.calc-card-value.green { color: var(--green); }
+.calc-card-sub { font-size: 11px; color: var(--text-muted); margin-top: 4px; line-height: 1.4; }
+
 /* Table expand button */
 .expand-wrap { display: flex; gap: 8px; justify-content: center; margin-top: 16px; }
 .expand-btn { background: var(--bg3); border: 1px solid var(--border); color: var(--text-muted); padding: 8px 28px; border-radius: 6px; cursor: pointer; font-size: 13px; font-family: inherit; transition: all 0.15s; }
@@ -102,4 +120,6 @@ td.empty { text-align: center; color: var(--text-muted); padding: 24px; }
   .header-right { width: 100%; }
   .stat-card { flex: 1; }
   #chart { height: 340px; }
+  .calc-results { grid-template-columns: repeat(2, 1fr); }
+  .calc-card-value { font-size: 15px; }
 }

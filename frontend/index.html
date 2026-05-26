@@ -61,6 +61,43 @@
       <span class="legend-item div">↑ 분배금 지급일</span>
     </div>
 
+    <!-- Investment calculator -->
+    <section class="calc-section">
+      <h2 class="section-title">투자 수익 계산기</h2>
+      <div class="calc-inputs">
+        <div class="calc-input-group">
+          <label class="calc-label" for="calc-amount">투자금 (원)</label>
+          <input id="calc-amount" class="calc-input" type="number" placeholder="10000000" min="1" />
+        </div>
+        <div class="calc-input-group">
+          <label class="calc-label" for="calc-date">투자 시기</label>
+          <input id="calc-date" class="calc-input" type="date" />
+        </div>
+      </div>
+      <div class="calc-results">
+        <div class="calc-card">
+          <div class="calc-card-label">보유 수량</div>
+          <div class="calc-card-value" id="calc-qty">—</div>
+          <div class="calc-card-sub" id="calc-qty-sub"></div>
+        </div>
+        <div class="calc-card">
+          <div class="calc-card-label">누적 분배금</div>
+          <div class="calc-card-value green" id="calc-divs">—</div>
+          <div class="calc-card-sub" id="calc-divs-sub"></div>
+        </div>
+        <div class="calc-card">
+          <div class="calc-card-label">평가손익</div>
+          <div class="calc-card-value" id="calc-pnl">—</div>
+          <div class="calc-card-sub" id="calc-pnl-sub"></div>
+        </div>
+        <div class="calc-card calc-card-total">
+          <div class="calc-card-label">합산 수익</div>
+          <div class="calc-card-value" id="calc-total">—</div>
+          <div class="calc-card-sub" id="calc-total-sub"></div>
+        </div>
+      </div>
+    </section>
+
     <!-- Dividend table -->
     <section class="table-section">
       <h2 class="section-title">분배금 지급 이력</h2>

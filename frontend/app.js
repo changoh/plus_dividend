@@ -11,6 +11,8 @@ let markerMode = 'monthly'; // 'monthly' | 'annual'
 let markerDebounceTimer = null;
 let tradingDates = []; // 실거래일 목록 — timeToCoordinate에 항상 유효한 날짜 전달용
 
+let candleCloseMap = {}; // 날짜 → 종가 (투자 계산기용)
+
 const dragState = {
   active: false,
   startX: 0,
@@ -491,6 +493,18 @@ async function loadChart() {
     // 실거래일 목록 저장 (오름차순 정렬 보장)
     tradingDates = data.candles.map(c => c.time).sort();
 
+    // 날짜 → 종가 맵 (투자 계산기용)
+    candleCloseMap = {};
+    data.candles.forEach(c => { candleCloseMap[c.time] = c.close; });
+
+    // 투자 계산기 날짜 입력 범위 설정 (기본값: 1년 전)
+    const firstDate = tradingDates[0] || '';
+    const lastDate  = tradingDates[tradingDates.length - 1] || '';
+    const calcDateEl = el('calc-date');
+    calcDateEl.min = firstDate;
+    calcDateEl.max = lastDate;
+    if (!calcDateEl.value) calcDateEl.value = monthsAgo(12);
+
     currentDividends = data.dividends;
     currentLastClose = data.last_close;
     buildDivMap(data.dividends);
@@ -651,6 +665,76 @@ function handleCrosshair(param) {
   tooltip.classList.remove('hidden');
 }
 
+// ── 투자 계산기 ──────────────────────────────────────────────────────────────
+function runCalculator() {
+  const amountVal = parseFloat(el('calc-amount').value);
+  const dateVal = el('calc-date').value;
+
+  // 입력 미완 시 결과 초기화
+  if (!amountVal || amountVal <= 0 || !dateVal) {
+    ['calc-qty','calc-divs','calc-pnl','calc-total'].forEach(id => {
+      el(id).textContent = '—';
+      el(id).className = 'calc-card-value' + (id === 'calc-divs' ? ' green' : '');
+    });
+    ['calc-qty-sub','calc-divs-sub','calc-pnl-sub','calc-total-sub'].forEach(id => {
+      el(id).textContent = '';
+    });
+    return;
+  }
+
+  // 비거래일이면 이후 첫 거래일로 snap
+  const tradingDate = nearestTradingDay(dateVal);
+  if (!tradingDate) return;
+
+  const buyPrice = candleCloseMap[tradingDate];
+  if (!buyPrice) return;
+
+  const qty = Math.floor(amountVal / buyPrice);
+
+  el('calc-qty').textContent = qty.toLocaleString() + '주';
+  el('calc-qty').className = 'calc-card-value';
+  el('calc-qty-sub').textContent = tradingDate !== dateVal
+    ? `${tradingDate} 종가 ${buyPrice.toLocaleString()}원 기준`
+    : `종가 ${buyPrice.toLocaleString()}원 기준`;
+
+  if (qty === 0) {
+    el('calc-qty-sub').textContent += ' (투자금 부족)';
+    ['calc-divs','calc-pnl','calc-total'].forEach(id => {
+      el(id).textContent = '—';
+    });
+    return;
+  }
+
+  // 누적 분배금: 투자일 이후(strict) 분배금 × 수량
+  const totalDivs = currentDividends
+    .filter(d => d.date > tradingDate)
+    .reduce((sum, d) => sum + d.amount * qty, 0);
+
+  const divCount = currentDividends.filter(d => d.date > tradingDate).length;
+  el('calc-divs').textContent = totalDivs.toLocaleString() + '원';
+  el('calc-divs').className = 'calc-card-value green';
+  el('calc-divs-sub').textContent = `${divCount}회 지급`;
+
+  // 평가손익: (현재가 - 매수가) × 수량
+  const pnl = (currentLastClose - buyPrice) * qty;
+  const pnlPct = ((currentLastClose - buyPrice) / buyPrice * 100).toFixed(1);
+  el('calc-pnl').textContent = (pnl >= 0 ? '+' : '') + pnl.toLocaleString() + '원';
+  el('calc-pnl').className = 'calc-card-value' + (pnl >= 0 ? ' profit' : ' loss');
+  el('calc-pnl-sub').textContent = (pnl >= 0 ? '+' : '') + pnlPct + '%';
+
+  // 합산 수익: 분배금 + 평가손익
+  const total = totalDivs + pnl;
+  const totalPct = (total / amountVal * 100).toFixed(1);
+  el('calc-total').textContent = (total >= 0 ? '+' : '') + total.toLocaleString() + '원';
+  el('calc-total').className = 'calc-card-value' + (total >= 0 ? ' profit' : ' loss');
+  el('calc-total-sub').textContent = (total >= 0 ? '+' : '') + totalPct + '%';
+}
+
+function initCalculator() {
+  el('calc-amount').addEventListener('input', runCalculator);
+  el('calc-date').addEventListener('change', runCalculator);
+}
+
 // ── Toast / Loading ───────────────────────────────────────────────────────────
 function showToast(msg) {
   const t = el('toast');
@@ -668,6 +752,7 @@ initChart();
 initScrollbar();
 initPeriodButtons();
 initDragGestures();
+initCalculator();
 
 el('expand-btn').addEventListener('click', () => {
   tableShownCount += 20;
