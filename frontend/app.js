@@ -11,6 +11,14 @@ let markerMode = 'monthly'; // 'monthly' | 'annual'
 let markerDebounceTimer = null;
 let tradingDates = []; // 실거래일 목록 — timeToCoordinate에 항상 유효한 날짜 전달용
 
+const dragState = {
+  active: false,
+  startX: 0,
+  relStartX: 0,
+  startTime: null,
+  mode: 'idle', // 'idle' | 'right' | 'left'
+};
+
 const MIN_DATE = '2013-01-01';
 const MARKER_COLORS = ['#22c55e', '#f59e0b'];
 
@@ -110,7 +118,7 @@ function initChart() {
         return `${y}/${String(m).padStart(2,'0')}/${String(d).padStart(2,'0')}`;
       },
     },
-    handleScroll: true,
+    handleScroll: false,
     handleScale: {
       mouseWheel: false,        // 휠 줌 비활성 — 아래에서 1캔들씩 패닝으로 처리
       pinch: true,
@@ -273,6 +281,85 @@ function drawDividendCircles(overlay, chartWidth) {
     circle.style.height = `${diameter}px`;
     circle.style.backgroundColor = MARKER_COLORS[colorIdx];
     overlay.appendChild(circle);
+  });
+}
+
+// ── 드래그 제스처 ─────────────────────────────────────────────────────────
+// 오른쪽 드래그: 선택 구간만 줌 / 왼쪽 드래그: 3년 이전 확장
+function initDragGestures() {
+  const chartEl = el('chart');
+  const THRESHOLD = 30;
+
+  chartEl.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    const rect = chartEl.getBoundingClientRect();
+    dragState.active = true;
+    dragState.startX = e.clientX;
+    dragState.relStartX = e.clientX - rect.left;
+    dragState.startTime = chart.timeScale().coordinateToTime(dragState.relStartX);
+    dragState.mode = 'idle';
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!dragState.active) return;
+    const dx = e.clientX - dragState.startX;
+    if (Math.abs(dx) < THRESHOLD) {
+      dragState.mode = 'idle';
+      hideSelectionBand();
+      return;
+    }
+    if (dx > 0) {
+      dragState.mode = 'right';
+      const rect = el('chart').getBoundingClientRect();
+      showSelectionBand(dragState.relStartX, e.clientX - rect.left);
+    } else {
+      dragState.mode = 'left';
+      hideSelectionBand();
+    }
+  });
+
+  document.addEventListener('mouseup', (e) => {
+    if (!dragState.active) return;
+    dragState.active = false;
+    hideSelectionBand();
+
+    if (dragState.mode === 'right') {
+      const rect = el('chart').getBoundingClientRect();
+      const relEndX = e.clientX - rect.left;
+      const endTime = chart.timeScale().coordinateToTime(relEndX);
+      if (dragState.startTime && endTime) {
+        chart.timeScale().setVisibleRange({
+          from: toDateStr(dragState.startTime),
+          to: toDateStr(endTime),
+        });
+      }
+    } else if (dragState.mode === 'left') {
+      extendThreeYearsBack();
+    }
+    dragState.mode = 'idle';
+  });
+}
+
+function showSelectionBand(x1, x2) {
+  const band = el('selection-band');
+  band.classList.remove('hidden');
+  band.style.left = Math.min(x1, x2) + 'px';
+  band.style.width = Math.abs(x2 - x1) + 'px';
+}
+
+function hideSelectionBand() {
+  el('selection-band').classList.add('hidden');
+}
+
+function extendThreeYearsBack() {
+  const range = chart.timeScale().getVisibleRange();
+  if (!range) return;
+  const d = new Date(toDateStr(range.from));
+  d.setFullYear(d.getFullYear() - 3);
+  const newFrom = d.toISOString().slice(0, 10);
+  chart.timeScale().setVisibleRange({
+    from: newFrom < MIN_DATE ? MIN_DATE : newFrom,
+    to: toDateStr(range.to),
   });
 }
 
@@ -503,6 +590,7 @@ function showLoading(show) {
 // ── Boot ──────────────────────────────────────────────────────────────────────
 initChart();
 initPeriodButtons();
+initDragGestures();
 
 el('expand-btn').addEventListener('click', () => {
   tableShownCount += 20;

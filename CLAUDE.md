@@ -32,21 +32,25 @@ pip install -r requirements.txt
 
 ## 아키텍처
 
-### 전체 요청 흐름
+### 전체 데이터 흐름
 
 ```
-브라우저
-  └─ GET /api/chart?start=YYYY-MM-DD&end=YYYY-MM-DD
-       └─ FastAPI (backend/app.py)
-            ├─ get_ohlcv(start, end)          → FinanceDataReader (KRX 티커 161510)
-            └─ get_dividends(start, end, ...)  → Excel 또는 CSV
-       └─ ChartResponse JSON
-  └─ TradingView Lightweight Charts 렌더링 (frontend/app.js)
+[데이터 갱신 시]
+  regenerate_chart.py 또는 scripts/generate_data.py
+       ├─ FinanceDataReader → OHLCV
+       ├─ dividends.py → 분배금 (엑셀 또는 CSV)
+       └─ frontend/data/chart.json 생성 (캔들 + 분배금 + ttm_yield)
+
+[브라우저 렌더링 시]
+  fetch('/data/chart.json')       ← 정적 파일 단일 요청 (API 호출 없음)
+       └─ TradingView Lightweight Charts 렌더링 (frontend/app.js)
 ```
+
+로컬 개발 시에는 FastAPI(`/api/chart`)가 live API로 동작하지만, **프론트엔드는 항상 `/data/chart.json` 정적 파일을 사용**한다.
 
 ### 백엔드 레이어 (`backend/`)
 
-- **`app.py`**: FastAPI 앱. 유일한 엔드포인트 `GET /api/chart`. 정적 파일 마운트는 반드시 API 라우트 등록 이후에 위치해야 함 (순서 중요).
+- **`app.py`**: FastAPI 앱. `GET /api/chart` 엔드포인트 (로컬 개발용). 정적 파일 마운트는 반드시 API 라우트 등록 이후에 위치해야 함 (순서 중요).
 - **`data_service.py`**: FinanceDataReader로 OHLCV 조회. `(start, end)` 튜플을 키로 6시간 인메모리 캐시. 서버 재시작 시 캐시 초기화됨.
 - **`dividends.py`**: 분배금 로딩 우선순위 — `DIVIDENDS_EXCEL_PATH` 환경변수 경로 엑셀 → `data/dividends_fallback.csv` 순서. 분배금 날짜가 휴일이면 직전 거래일로 snap 처리.
 - **`config.py`**: 티커(`161510`), 기본 시작일, 파일 경로 중앙 관리.
@@ -54,16 +58,45 @@ pip install -r requirements.txt
 
 ### 프론트엔드 (`frontend/`)
 
-- **`app.js`**: 2단계 로딩 전략.
-  - **Phase 1**: 초기 6개월 로드 → 즉시 렌더링
-  - **Phase 2**: 백그라운드에서 2013년~현재 전체 로드 → 완료 후 스크롤이 API 없이 `setVisibleRange()`만으로 즉각 반응
-  - 스크롤 다운 시 1개월씩 이전 데이터 표시. Phase 2 완료 전에는 API 호출, 완료 후에는 visible range 조작만.
-- **`index.html`**: CDN으로 TradingView Lightweight Charts v4, Pretendard 폰트 로드. 빌드 스텝 없음.
+- **`app.js`**: `/data/chart.json` 단일 fetch 후 전체 렌더링. API 호출 없음.
+  - `buildDivMap()`: 분배금 날짜 → `{ amount, color }` 매핑. crosshair tooltip에 사용.
+  - `buildDivPriceMap()`: 분배금 날짜 → 해당 캔들 low 가격. 오버레이 원 y좌표 계산에 사용.
+  - `tradingDates[]`: 비거래일에 `timeToCoordinate()`가 `null`을 반환하는 문제를 방지하기 위해 실거래일 목록을 유지.
+- **`index.html`**: CDN으로 TradingView Lightweight Charts v4.1.3, Pretendard 폰트 로드. 빌드 스텝 없음.
 - **`style.css`**: CSS 변수 기반 다크 테마. 한국 주식 색상 관례 (빨강=상승, 파랑=하락).
 
-### 분배금 마커 색상 로직
+### 분배금 마커 렌더링 (두 가지 모드)
 
-금액이 변경될 때마다 색상이 교대 (`MARKER_COLORS = ['#22c55e', '#f59e0b']`). 동일 금액은 동일 색상 유지. `renderMarkers()`와 `buildDivMap()` 두 곳에서 동일 로직을 독립적으로 수행하므로 수정 시 두 함수 모두 변경해야 함.
+zoom 레벨에 따라 모드가 자동 전환된다 (`monthsBetween > 36` → annual).
+
+- **monthly 모드**: LWC 내장 `setMarkers()` 사용 (`arrowUp` shape).
+- **annual 모드**: `setMarkers([])`로 LWC 마커 제거 후, `#chart-overlay` div에 DOM 엘리먼트를 직접 그림. LWC의 marker 최소 크기 제약을 우회하기 위한 설계.
+  - `div.year-line`: 연말 빨간 세로선
+  - `div.year-label`: 연간 합산 텍스트 (7월 1일 기준 위치)
+  - `div.div-circle`: 분배금 원 (캔들 2개 폭에 비례한 직경)
+
+마커 색상: 금액이 변경될 때마다 교대 (`MARKER_COLORS = ['#22c55e', '#f59e0b']`). `renderMarkers()`, `buildDivMap()`, `drawDividendCircles()` 세 곳에서 동일 로직을 독립적으로 수행하므로 **수정 시 세 함수 모두 변경**해야 함.
+
+## 데이터 갱신 스크립트
+
+### `regenerate_chart.py` — 전체 재생성 (엑셀 필요)
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+$env:DIVIDENDS_EXCEL_PATH = "C:\Users\eugene\Downloads\PLUS 고배당주 분배금 지급현황_.xlsx"
+python regenerate_chart.py
+```
+
+`frontend/data/chart.json`과 `data/dividends_fallback.csv`를 모두 재생성한다.
+
+### `scripts/generate_data.py` — 증분 갱신 (엑셀 불필요)
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+python scripts/generate_data.py
+```
+
+기존 `chart.json`이 있으면 마지막 캔들 다음 날부터만 신규 OHLCV를 추가한다. 분배금은 항상 로컬 CSV에서 전체 재로드.
 
 ## 분배금 데이터 업데이트
 
@@ -77,6 +110,7 @@ pip install -r requirements.txt
 
 ## 배포
 
-- **Vercel** (프론트엔드): `vercel.json`의 `outputDirectory: "frontend"`. `/api/*` 요청을 Render 백엔드로 rewrite. `RENDER_URL_HERE`를 실제 URL로 교체 필요.
-- **Render** (백엔드): `render.yaml` 참조. Start command: `uvicorn backend.app:app --host 0.0.0.0 --port $PORT`. 무료 플랜은 15분 비활동 시 cold start 발생.
+- **Vercel** (프론트엔드): `vercel.json`의 `outputDirectory: "frontend"`. `frontend/` 디렉터리 전체를 정적으로 서빙. `/api/*` rewrite 없음 — 프론트엔드가 `chart.json`만 사용하기 때문.
+- **Render** (백엔드): `render.yaml` 참조. Start command: `uvicorn backend.app:app --host 0.0.0.0 --port $PORT`. 로컬 개발용으로만 사용. 무료 플랜은 15분 비활동 시 cold start 발생.
 - `*.xlsx` 파일은 `.gitignore`에 포함되어 git에 올라가지 않음. 서버에서는 `data/dividends_fallback.csv`가 자동으로 사용됨.
+- 데이터 갱신 후 배포: `git add frontend/data/chart.json data/dividends_fallback.csv && git commit && git push`
